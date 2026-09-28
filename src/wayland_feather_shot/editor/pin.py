@@ -18,6 +18,7 @@ gi.require_version("Gdk", "4.0")
 from gi.repository import Gdk, Gtk  # noqa: E402
 
 from .. import save as save_mod
+from ..lifecycle import release_on_window_removed
 from ..theme import install_custom_css
 
 MAX_W, MAX_H = 1000, 800
@@ -30,7 +31,7 @@ class PinWindow(Gtk.ApplicationWindow):
         self.set_decorated(False)
         self.set_resizable(False)
         app.hold()
-        self.connect("destroy", lambda *_: app.release())
+        release_on_window_removed(app, self)
 
         handle = Gtk.WindowHandle()  # dragging anywhere moves the window
         picture = Gtk.Picture.new_for_pixbuf(pixbuf)

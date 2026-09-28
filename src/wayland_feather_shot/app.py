@@ -22,8 +22,9 @@ gi.require_version("GdkPixbuf", "2.0")
 from gi.repository import Gdk, GdkPixbuf, Gio, GLib, Gtk  # noqa: E402
 
 from . import APP_ID
-from .i18n import _, tr
 from .editor.window import EditorWindow
+from .i18n import _, tr
+from .lifecycle import release_on_window_removed
 from .portal import Portal, PortalError, cleanup_portal_file
 from .select_overlay import OverlayWindow
 from .settings import Settings
@@ -82,12 +83,12 @@ class FeatherShotApp(Gtk.Application):
             win = history.open_gallery(
                 self, self.settings,
                 lambda p: self._open_existing(p, hold=True))
-            win.connect("destroy", lambda *_: self.release())
+            release_on_window_removed(self, win)
             return
         if self.mode == "settings":
             from . import prefs
             win = prefs.open_settings(self, self.settings)
-            win.connect("destroy", lambda *_: self.release())
+            release_on_window_removed(self, win)
             return
         try:
             self.portal = Portal()
@@ -182,7 +183,7 @@ class FeatherShotApp(Gtk.Application):
         else:
             win = EditorWindow(self, pixbuf, self.settings,
                                save_path=self.output)
-        win.connect("destroy", lambda *_: self.release())
+        release_on_window_removed(self, win)
         win.present()
 
     def _save_and_exit(self, pixbuf):
@@ -230,7 +231,7 @@ class FeatherShotApp(Gtk.Application):
         win = EditorWindow(self, pixbuf, self.settings, shapes=shapes,
                            startup_toast=toast, crop=crop,
                            background=background)
-        win.connect("destroy", lambda *_: self.release())
+        release_on_window_removed(self, win)
         win.present()
 
     def _restore_sidecar(self, path, pixbuf):
@@ -272,7 +273,7 @@ class FeatherShotApp(Gtk.Application):
         self.hold()
         win = EditorWindow(self, pixbuf, self.settings, shapes=shapes,
                            startup_toast=startup_toast)
-        win.connect("destroy", lambda *_: self.release())
+        release_on_window_removed(self, win)
         win.present()
 
     # -- scrolling capture ----------------------------------------------------
@@ -280,7 +281,7 @@ class FeatherShotApp(Gtk.Application):
     def _start_scroll(self):
         from .scrollcap import recorder as rec
 
-        # release() is wired to the window's destroy below, so it fires however
+        # release() is wired to window removal below, so it fires however
         # the window closes (Finish, Cancel, Esc, or the WM close button) — the
         # callback must not release again.
         def on_result(pixbuf, error, warning=None):
@@ -293,7 +294,7 @@ class FeatherShotApp(Gtk.Application):
         if rec.gstreamer_available():
             win = rec.ScrollCaptureWindow(self, self.settings, on_result,
                                           auto=self.auto)
-            win.connect("destroy", lambda *_: self.release())
+            release_on_window_removed(self, win)
             win.present()
             win.begin(self.portal)
         else:
@@ -306,14 +307,14 @@ class FeatherShotApp(Gtk.Application):
             # capture (slower, but no extra dependency) instead of failing.
             from .scrollcap.manual import ManualScrollWindow
             win = ManualScrollWindow(self, self.settings, self.portal, on_result)
-            win.connect("destroy", lambda *_: self.release())
+            release_on_window_removed(self, win)
             win.present()
             win.begin()
 
     def _start_gif(self):
         from .gifcap import GifCaptureWindow
 
-        # release() is wired to destroy (see below), so closing the window any
+        # release() is wired to window removal (see below), so closing it any
         # way — including the WM close button — releases exactly once.
         def on_done(path, error):
             if error:
@@ -322,7 +323,7 @@ class FeatherShotApp(Gtk.Application):
                 print(path)
 
         win = GifCaptureWindow(self, self.settings, self.portal, on_done)
-        win.connect("destroy", lambda *_: self.release())
+        release_on_window_removed(self, win)
         win.present()
         win.begin()
 
