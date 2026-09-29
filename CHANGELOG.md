@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 0.10.1 (2026-09-29)
+
 - **Fixed: GUI processes lingered after the last window closed** (#43). Every
   window released the application's manual hold from its `destroy` signal, a
   GTK 3 habit that no longer works: in GTK 4 `gtk_window_destroy()` only drops

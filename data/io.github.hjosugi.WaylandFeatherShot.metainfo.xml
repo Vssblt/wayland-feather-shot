@@ -52,6 +52,19 @@
   <content_rating type="oars-1.1"/>
 
   <releases>
+    <release version="0.10.1" date="2026-09-29">
+      <description>
+        <p>
+          Two fixes from the community. The GUI process no longer stays
+          running after the last window closes: holds are released when GTK
+          removes the window, not from a destroy signal that GTK 4 never
+          delivered. The region overlay's toolbar and action bar no longer
+          overlap for small selections; the action bar aligns to the bottom
+          of a short selection and becomes a second row under the toolbar in
+          screen corners.
+        </p>
+      </description>
+    </release>
     <release version="0.10.0" date="2026-08-25">
       <description>
         <p>
