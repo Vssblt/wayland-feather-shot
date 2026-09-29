@@ -9,6 +9,7 @@ a floating toolbar attached to the selection, then Ctrl+S / Ctrl+C.
 
 from __future__ import annotations
 
+import math
 import os
 from typing import Callable, List, Optional, Tuple
 
@@ -26,6 +27,7 @@ from .editor import shapes as shape_model
 from .editor.shapes import (Arrow, EllipseShape, Highlight, Line, Marker,
                             Obscure, Pen, RectShape, Style, Text)
 from .i18n import _, tr
+from .overlay_layout import layout_controls, position_label
 from .theme import install_custom_css
 
 Rect = Tuple[int, int, int, int]
@@ -105,6 +107,8 @@ class OverlayWindow(Gtk.ApplicationWindow):
     def _build_ui(self):
         self._root = Gtk.Overlay()
         self.set_child(self._root)
+        self._bar_rects = ()
+        self._action_sizes = None
 
         self.area = Gtk.DrawingArea()
         self.area.set_draw_func(self._draw, None)
@@ -133,14 +137,14 @@ class OverlayWindow(Gtk.ApplicationWindow):
 
         self._install_css()
         self._toolbar = self._build_toolbar()
-        self._sidebar = self._build_sidebar()
+        self._action_bar = self._build_action_bar()
         self._toast = Gtk.Label()
         self._toast.add_css_class("wfs-toast")
         self._toast.set_halign(Gtk.Align.CENTER)
         self._toast.set_valign(Gtk.Align.END)
         self._toast.set_margin_bottom(48)
         self._toast.set_visible(False)
-        for w in (self._toolbar, self._sidebar, self._toast):
+        for w in (self._toolbar, self._action_bar, self._toast):
             self._root.add_overlay(w)
 
     def _build_toolbar(self) -> Gtk.Widget:
@@ -191,7 +195,7 @@ class OverlayWindow(Gtk.ApplicationWindow):
         bar.append(redo)
         return bar
 
-    def _build_sidebar(self) -> Gtk.Widget:
+    def _build_action_bar(self) -> Gtk.Widget:
         bar = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
         bar.add_css_class("wfs-bar")
         bar.set_halign(Gtk.Align.START)
@@ -482,7 +486,7 @@ class OverlayWindow(Gtk.ApplicationWindow):
             self._push_history()
             self.shapes.append(preview)
         elif kind in ("move", "resize"):
-            self._reposition_bars()
+            self._update_control_layout()
         self.area.queue_draw()
 
     def _apply_drag(self, ix, iy):
@@ -498,7 +502,7 @@ class OverlayWindow(Gtk.ApplicationWindow):
             nx = max(0, min(int(x + ix - sx), iw - w))
             ny = max(0, min(int(y + iy - sy), ih - h))
             self.sel = (nx, ny, w, h)
-            self._reposition_bars()
+            self._update_control_layout()
         elif kind == "resize" and self._drag_sel0:
             x, y, w, h = self._drag_sel0
             x0, y0, x1, y1 = x, y, x + w, y + h
@@ -512,7 +516,7 @@ class OverlayWindow(Gtk.ApplicationWindow):
             if "s" in hd:
                 y1 = max(iy, y0 + 1)
             self.sel = self._clamp_rect(x0, y0, x1 - x0, y1 - y0)
-            self._reposition_bars()
+            self._update_control_layout()
         elif kind == "draw":
             self._update_preview((ix, iy))
 
@@ -625,13 +629,15 @@ class OverlayWindow(Gtk.ApplicationWindow):
         self.mode = "edit"
         self.select_tool("move")
         self._set_bars_visible(True)
-        self._reposition_bars()
+        self._update_control_layout()
 
     def _set_bars_visible(self, visible: bool):
         self._toolbar.set_visible(visible)
-        self._sidebar.set_visible(visible)
+        self._action_bar.set_visible(visible)
+        if not visible:
+            self._bar_rects = ()
 
-    def _reposition_bars(self):
+    def _update_control_layout(self):
         if not self.sel:
             return
         win_w = max(1, self.area.get_width())
@@ -639,43 +645,45 @@ class OverlayWindow(Gtk.ApplicationWindow):
         x, y, w, h = self.sel
         wx0, wy0 = self._to_widget(x, y)
         wx1, wy1 = self._to_widget(x + w, y + h)
-        tb_w = max(
-            1,
-            self._toolbar.measure(Gtk.Orientation.HORIZONTAL, -1)[1]
-            - self._toolbar.get_margin_start()
-            - self._toolbar.get_margin_end(),
+        def bar_size(bar):
+            return (
+                max(1, bar.measure(Gtk.Orientation.HORIZONTAL, -1)[1]
+                    - bar.get_margin_start() - bar.get_margin_end()),
+                max(1, bar.measure(Gtk.Orientation.VERTICAL, -1)[1]
+                    - bar.get_margin_top() - bar.get_margin_bottom()),
+            )
+
+        toolbar_size = bar_size(self._toolbar)
+        if self._action_sizes is None:
+            self._action_bar.set_orientation(Gtk.Orientation.VERTICAL)
+            vertical_size = bar_size(self._action_bar)
+            self._action_bar.set_orientation(Gtk.Orientation.HORIZONTAL)
+            horizontal_size = bar_size(self._action_bar)
+            self._action_sizes = (vertical_size, horizontal_size)
+
+        vertical_size, horizontal_size = self._action_sizes
+        layout = layout_controls(
+            (win_w, win_h), (wx0, wy0, wx1, wy1), toolbar_size,
+            vertical_size, horizontal_size,
         )
-        tb_h = max(
-            1,
-            self._toolbar.measure(Gtk.Orientation.VERTICAL, -1)[1]
-            - self._toolbar.get_margin_top()
-            - self._toolbar.get_margin_bottom(),
+        self._action_bar.set_orientation(
+            Gtk.Orientation.HORIZONTAL if layout.stacked
+            else Gtk.Orientation.VERTICAL)
+        toolbar_pos, action_pos = layout.toolbar, layout.actions
+        tb_w, tb_h = toolbar_size
+        action_w, action_h = (horizontal_size if layout.stacked
+                              else vertical_size)
+        self._toolbar.set_margin_start(toolbar_pos[0])
+        self._toolbar.set_margin_top(toolbar_pos[1])
+        self._action_bar.set_margin_start(action_pos[0])
+        self._action_bar.set_margin_top(action_pos[1])
+        self._bar_rects = (
+            (toolbar_pos[0], toolbar_pos[1],
+             toolbar_pos[0] + tb_w, toolbar_pos[1] + tb_h),
+            (action_pos[0], action_pos[1],
+             action_pos[0] + action_w, action_pos[1] + action_h),
         )
-        tx = (wx0 + wx1) / 2 - tb_w / 2
-        tx = max(8, min(tx, win_w - tb_w - 8))
-        ty = wy1 + 12
-        if ty + tb_h > win_h - 8:      # no room below -> above the selection
-            ty = max(8, wy0 - tb_h - 12)
-        self._toolbar.set_margin_start(int(tx))
-        self._toolbar.set_margin_top(int(ty))
-        sb_w = max(
-            1,
-            self._sidebar.measure(Gtk.Orientation.HORIZONTAL, -1)[1]
-            - self._sidebar.get_margin_start()
-            - self._sidebar.get_margin_end(),
-        )
-        sb_h = max(
-            1,
-            self._sidebar.measure(Gtk.Orientation.VERTICAL, -1)[1]
-            - self._sidebar.get_margin_top()
-            - self._sidebar.get_margin_bottom(),
-        )
-        sx = wx1 + 12
-        if sx + sb_w > win_w - 8:      # no room right -> left of the selection
-            sx = max(8, wx0 - sb_w - 12)
-        sy = max(8, min(wy0, win_h - sb_h - 8))
-        self._sidebar.set_margin_start(int(sx))
-        self._sidebar.set_margin_top(int(sy))
+        self.area.queue_draw()
 
     # ------------------------------------------------------------ actions --
 
@@ -813,10 +821,15 @@ class OverlayWindow(Gtk.ApplicationWindow):
                                 cairo.FONT_WEIGHT_BOLD)
             cr.set_font_size(13)
             ext = cr.text_extents(label)
-            lx = min(wx0 + 6, w - ext.width - 12)
-            ly = max(18.0, wy0 - 10)
+            label_x, label_y = position_label(
+                (w, h), (wx0, wy0, wx1, wy1),
+                (math.ceil(ext.width + 10), math.ceil(ext.height + 9)),
+                self._bar_rects if self.mode == "edit" else (),
+            )
+            lx = label_x + 5
+            ly = label_y + ext.height + 4
             cr.set_source_rgba(0, 0, 0, 0.7)
-            cr.rectangle(lx - 5, ly - ext.height - 4, ext.width + 10,
+            cr.rectangle(label_x, label_y, ext.width + 10,
                          ext.height + 9)
             cr.fill()
             cr.set_source_rgb(1, 1, 1)
