@@ -2,6 +2,27 @@
 
 ## Unreleased
 
+- **Fixed: GUI processes lingered after the last window closed** (#43). Every
+  window released the application's manual hold from its `destroy` signal, a
+  GTK 3 habit that no longer works: in GTK 4 `gtk_window_destroy()` only drops
+  the toplevel reference, and the Python signal closures inside a window keep
+  it alive, so `destroy` never fired and `wayland-feather-shot gui` stayed
+  running after Copy or Esc — on every desktop, not just Sway. Holds are now
+  released on `Gtk.Application::window-removed`, which fires synchronously when
+  the window closes.
+  Thanks to [@Vssblt](https://github.com/Vssblt) for the report and the fix
+  (#39).
+- **Fixed: the overlay toolbar and action bar overlapped for small
+  selections** (#40). The two bars were placed independently and only checked
+  against the screen edges, so any selection shorter than the vertical action
+  bar had the bars crossing. Placement now lives in a pure `overlay_layout`
+  module that keeps the usual L-shaped arrangement whenever it fits, aligns the
+  action bar to the bottom of a short selection, and turns it into a second
+  horizontal row under the toolbar when a screen corner leaves no room. The
+  dimension label moves out of the way of the controls too.
+  Thanks to [@Vssblt](https://github.com/Vssblt) for the report and the fix
+  (#44).
+
 ## 0.10.0 (2026-08-25)
 
 - **Background and framing** (#36). A screenshot can now be handed back as a
