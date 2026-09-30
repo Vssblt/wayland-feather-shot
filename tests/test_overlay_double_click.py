@@ -7,20 +7,25 @@ from unittest.mock import patch
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
 
-import gi  # noqa: E402
+try:
+    import gi  # noqa: E402
 
-gi.require_version("Gtk", "4.0")
-gi.require_version("Gdk", "4.0")
-gi.require_version("GdkPixbuf", "2.0")
-from gi.repository import Gdk, GdkPixbuf, Gtk  # noqa: E402
+    gi.require_version("Gtk", "4.0")
+    gi.require_version("Gdk", "4.0")
+    gi.require_version("GdkPixbuf", "2.0")
+    from gi.repository import Gdk, GdkPixbuf, Gtk  # noqa: E402
+except (ImportError, ValueError):
+    HAVE_GTK_DISPLAY = False
+else:
+    HAVE_GTK_DISPLAY = Gdk.Display.get_default() is not None
 
-if Gdk.Display.get_default() is not None:
+if HAVE_GTK_DISPLAY:
     from wayland_feather_shot import save as save_mod  # noqa: E402
     from wayland_feather_shot.select_overlay import OverlayWindow  # noqa: E402
     from wayland_feather_shot.settings import Settings  # noqa: E402
 
 
-@unittest.skipUnless(Gdk.Display.get_default() is not None, "GTK display unavailable")
+@unittest.skipUnless(HAVE_GTK_DISPLAY, "GTK display unavailable")
 class OverlayDoubleClickTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
